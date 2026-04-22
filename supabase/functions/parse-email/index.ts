@@ -1,7 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 type ParseEmailBody = {
-  userId: string;
   subject: string;
   sender: string;
   body: string;
@@ -115,6 +114,7 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const authHeader = request.headers.get("Authorization");
 
   if (!supabaseUrl || !serviceRoleKey) {
     return Response.json(
@@ -123,25 +123,38 @@ Deno.serve(async (request) => {
     );
   }
 
+  if (!authHeader) {
+    return Response.json({ error: "Missing Authorization header." }, { status: 401, headers: corsHeaders });
+  }
+
   const client = createClient(supabaseUrl, serviceRoleKey, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
     auth: {
       persistSession: false,
       autoRefreshToken: false,
     },
   });
 
+  const { data: userData, error: userError } = await client.auth.getUser();
+
+  if (userError || !userData.user) {
+    return Response.json({ error: userError?.message ?? "Unable to identify user." }, { status: 401, headers: corsHeaders });
+  }
+
   const payload = (await request.json()) as ParseEmailBody;
 
-  if (!payload.userId) {
-    return Response.json({ error: "userId is required." }, { status: 400, headers: corsHeaders });
-  }
+  const userId = userData.user.id;
 
   const parsedEmail = parseEmail(payload.subject, payload.body, payload.sender);
 
   const { data: parsedEmailRow, error: insertParsedEmailError } = await client
     .from("parsed_emails")
     .insert({
-      user_id: payload.userId,
+      user_id: userId,
       subject: payload.subject,
       sender: payload.sender,
       received_at: payload.receivedAt ?? new Date().toISOString(),
@@ -167,7 +180,7 @@ Deno.serve(async (request) => {
     const { data: transactionRow, error: transactionError } = await client
       .from("transactions")
       .insert({
-        user_id: payload.userId,
+        user_id: userId,
         merchant: parsedEmail.merchant,
         category: parsedEmail.category,
         direction: parsedEmail.direction,

@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { useAuth } from "../context/AuthContext";
 import { formatDraftAmount, parseEmailDraft } from "../src/lib/email-parser";
 import { formatCurrency, formatDateTime } from "../src/lib/format";
 import { isSupabaseConfigured, supabase } from "../src/lib/supabase";
@@ -15,6 +16,7 @@ const defaultSender = "alerts@bank.co.id";
 const defaultBody = "Your debit card was charged Rp 65.000 at Starbucks Senayan City.";
 
 export default function EmailParserScreen() {
+  const { user } = useAuth();
   const [subject, setSubject] = useState(defaultSubject);
   const [sender, setSender] = useState(defaultSender);
   const [body, setBody] = useState(defaultBody);
@@ -22,14 +24,17 @@ export default function EmailParserScreen() {
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const latestEmail = useMemo(() => parsedEmails[0], []);
-
   async function handleParse() {
     const localDraft = parseEmailDraft(subject, body, sender);
     setParsedDraft(localDraft);
     setStatusMessage("Parsed locally from the sample email.");
 
     if (!isSupabaseConfigured || !supabase) {
+      return;
+    }
+
+    if (!user) {
+      setStatusMessage("Sign in first to sync parsed emails to Supabase.");
       return;
     }
 
@@ -90,7 +95,13 @@ export default function EmailParserScreen() {
         </View>
         <View style={styles.banner}>
           <MaterialCommunityIcons name="shield-check-outline" size={16} color={colors.primary} />
-          <Text style={styles.bannerText}>{isSupabaseConfigured ? "Supabase is connected." : "Set Supabase env vars to enable remote parsing."}</Text>
+          <Text style={styles.bannerText}>
+            {isSupabaseConfigured
+              ? user
+                ? "Supabase is connected and ready to parse emails."
+                : "Supabase is connected, but you need to sign in before syncing parsed emails."
+              : "Set Supabase env vars to enable remote parsing."}
+          </Text>
         </View>
       </View>
 
